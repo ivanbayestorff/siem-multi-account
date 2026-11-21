@@ -1,0 +1,57 @@
+#!/bin/bash
+
+set -euo pipefail
+cd /root
+
+snap list amazon-ssm-agent >/dev/null 2>&1 || snap install amazon-ssm-agent --classic
+
+while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done
+
+curl -sSfO https://packages.wazuh.com/${wazuh_minor}/wazuh-install.sh
+
+bash wazuh-install.sh -a
+
+tar -O -xf wazuh-install-files.tar wazuh-install-files/wazuh-passwords.txt \
+  | grep -A1 "indexer_username: 'admin'" | awk -F"'" '/indexer_password/ {print $2}' \
+  | /var/ossec/framework/python/bin/python3 -c 'import sys, boto3; boto3.client("ssm", region_name="${region}").put_parameter(Name="${password_parameter}", Value=sys.stdin.read().strip(), Type="SecureString", Overwrite=True)'
+
+cat >> /var/ossec/etc/ossec.conf <<'EOF'
+<ossec_config>
+  <wodle name="aws-s3">
+    <disabled>no</disabled>
+    <interval>1m</interval>
+    <run_on_start>yes</run_on_start>
+    <skip_on_error>yes</skip_on_error>
+    <bucket type="cloudtrail">
+      <name>${trail_bucket}</name>
+      <aws_organization_id>${organization_id}</aws_organization_id>
+    </bucket>
+  </wodle>
+  <integration>
+    <name>custom-sns</name>
+    <group>${alert_group}</group>
+    <alert_format>json</alert_format>
+  </integration>
+</ossec_config>
+EOF
+
+cat > /var/ossec/integrations/custom-sns <<'EOF'
+${sns_script}
+EOF
+
+cat > /var/ossec/integrations/custom-sns.json <<'EOF'
+${sns_config}
+EOF
+
+chown root:wazuh /var/ossec/integrations/custom-sns*
+chmod 750 /var/ossec/integrations/custom-sns*
+
+cat > /var/ossec/etc/shared/default/agent.conf <<'EOF'
+<agent_config os="Linux">
+  <syscheck>
+    <directories realtime="yes" report_changes="yes">/root/.ssh,/home/ec2-user/.ssh</directories>
+  </syscheck>
+</agent_config>
+EOF
+
+systemctl restart wazuh-manager

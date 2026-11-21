@@ -1,0 +1,58 @@
+name: terraform
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths: ["terraform/**", "wazuh/integrations/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type "destroy" to delete all the infrastructure
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency: terraform
+
+jobs:
+  terraform:
+    if: github.event_name != 'workflow_dispatch' || inputs.confirm == 'destroy'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_development_account_id: ${{ secrets.DEVELOPMENT_ACCOUNT_ID }}
+      TF_VAR_production_account_id: ${{ secrets.PRODUCTION_ACCOUNT_ID }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          mask-aws-account-id: true
+
+      - name: Mask the organization ID in the logs
+        run: echo "::add-mask::$(aws organizations describe-organization --query Organization.Id --output text)"
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.2
+
+      - run: terraform init -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - if: github.event_name == 'pull_request'
+        run: terraform plan
+
+      - if: github.event_name == 'push'
+        run: terraform apply -auto-approve
+
+      - if: github.event_name == 'workflow_dispatch'
+        run: terraform destroy -auto-approve
