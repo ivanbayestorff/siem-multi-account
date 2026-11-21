@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -euo pipefail
+
+for dir in /root/.ssh /home/ec2-user/.ssh; do
+  mkdir -p "$dir" && touch "$dir/authorized_keys"
+  chmod 700 "$dir" && chmod 600 "$dir/authorized_keys"
+done
+chown -R ec2-user:ec2-user /home/ec2-user/.ssh
+
+rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
+cat > /etc/yum.repos.d/wazuh.repo <<'EOF'
+[wazuh]
+name=Wazuh
+baseurl=https://packages.wazuh.com/4.x/yum/
+gpgkey=https://packages.wazuh.com/key/GPG-KEY-WAZUH
+gpgcheck=1
+enabled=1
+EOF
+WAZUH_MANAGER="${manager_ip}" WAZUH_AGENT_NAME="${agent_name}" dnf install -y "wazuh-agent-${wazuh_version}-1"
+
+until (exec 3<>/dev/tcp/${manager_ip}/1515) 2>/dev/null; do sleep 30; done
+systemctl daemon-reload
+systemctl enable --now wazuh-agent
