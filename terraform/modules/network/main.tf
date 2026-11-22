@@ -1,5 +1,3 @@
-# VPC with a private subnet for instances and a public subnet that only hosts the NAT gateway
-
 variable "name" {
   type = string
 }
@@ -99,7 +97,8 @@ output "cidr" {
 }
 
 output "private_subnet_id" {
-  value = aws_subnet.private.id
+  value      = aws_subnet.private.id
+  depends_on = [aws_route.private_nat, aws_route_table_association.private]
 }
 
 output "private_route_table_id" {

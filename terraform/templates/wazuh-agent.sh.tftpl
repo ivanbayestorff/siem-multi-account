@@ -8,6 +8,7 @@ for dir in /root/.ssh /home/ec2-user/.ssh; do
 done
 chown -R ec2-user:ec2-user /home/ec2-user/.ssh
 
+until curl -sSfo /dev/null https://packages.wazuh.com/key/GPG-KEY-WAZUH; do sleep 10; done
 rpm --import https://packages.wazuh.com/key/GPG-KEY-WAZUH
 cat > /etc/yum.repos.d/wazuh.repo <<'EOF'
 [wazuh]
